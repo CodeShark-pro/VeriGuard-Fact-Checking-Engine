@@ -3,11 +3,21 @@ from pydantic import BaseModel
 from ddgs import DDGS
 from sentence_transformers import CrossEncoder
 import warnings
+from fastapi.middleware.cors import CORSMiddleware
 
 # Suppress the annoying Windows symlink warnings
 warnings.filterwarnings("ignore")
 
 app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking OSINT Engine")
+
+# Allow the Chrome Extension to talk to this local server
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins (including your extension)
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
+)
 
 # 1. Global variables
 model = None
