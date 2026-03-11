@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "VeriGuard OSINT Verification",
+  "version": "1.0",
+  "description": "Zero-day fact-checking directly from your browser.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Verify Claim"
+  },
+  "permissions": []
+}

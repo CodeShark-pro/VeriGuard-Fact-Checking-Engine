@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { width: 300px; padding: 15px; font-family: Arial, sans-serif; }
+    textarea { width: 100%; height: 80px; margin-bottom: 10px; resize: none; }
+    button { width: 100%; padding: 10px; background-color: #2e7d32; color: white; border: none; cursor: pointer; font-weight: bold;}
+    button:hover { background-color: #1b5e20; }
+    #resultBox { margin-top: 15px; font-size: 14px; padding: 10px; border-radius: 5px; display: none;}
+    .entailment { background-color: #e8f5e9; color: #2e7d32; border: 1px solid #2e7d32;}
+    .contradiction { background-color: #ffebee; color: #c62828; border: 1px solid #c62828;}
+    .neutral { background-color: #eceff1; color: #455a64; border: 1px solid #455a64;}
+  </style>
+</head>
+<body>
+  <h3>VeriGuard Engine</h3>
+  <textarea id="claimInput" placeholder="Paste a claim here..."></textarea>
+  <button id="verifyBtn">Verify Claim</button>
+  
+  <div id="resultBox">
+    <strong id="verdictText"></strong><br><br>
+    <a id="sourceLink" href="#" target="_blank" style="font-size: 12px;">View Source Article</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
