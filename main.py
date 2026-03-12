@@ -5,7 +5,7 @@ from sentence_transformers import CrossEncoder
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
 
-# Suppress the annoying Windows symlink warnings
+# Suppress Windows symlink warnings
 warnings.filterwarnings("ignore")
 
 app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking OSINT Engine")
@@ -13,17 +13,17 @@ app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking OSINT
 # Allow the Chrome Extension to talk to this local server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins (including your extension)
+    allow_origins=["*"],  
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],  
+    allow_headers=["*"],  
 )
 
 # 1. Global variables
 model = None
 whitelist = ["reuters.com", "thehindu.com", "apnews.com", "pib.gov.in", "indianexpress.com", "timesofindia.indiatimes.com"]
 
-# 2. Load the AI model into memory when the server starts
+# 2. Load AI model into memory when the server starts
 @app.on_event("startup")
 def load_model():
     global model
@@ -36,7 +36,7 @@ def load_model():
 class ClaimRequest(BaseModel):
     claim: str
 
-# 4. The Verification Endpoint
+# 4. Verification Endpoint
 @app.post("/verify")
 async def verify_claim(request: ClaimRequest):
     claim = request.claim
