@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Suppress Windows symlink warnings
 warnings.filterwarnings("ignore")
 
-app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking OSINT Engine")
+app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking Engine")
 
 # Allow the Chrome Extension to talk to this local server
 app.add_middleware(
@@ -21,7 +21,13 @@ app.add_middleware(
 
 # 1. Global variables
 model = None
-whitelist = ["reuters.com", "thehindu.com", "apnews.com", "pib.gov.in", "indianexpress.com", "timesofindia.indiatimes.com"]
+# The Expanded VeriGuard Whitelist
+whitelist = [
+    # Breaking News & Govt
+    "reuters.com", "thehindu.com", "apnews.com", "pib.gov.in", "indianexpress.com", "timesofindia.indiatimes.com",
+    # Static Knowledge & Fact-Checking
+    "wikipedia.org", "britannica.com", "snopes.com", "politifact.com"
+]
 
 # 2. Load AI model into memory when the server starts
 @app.on_event("startup")
