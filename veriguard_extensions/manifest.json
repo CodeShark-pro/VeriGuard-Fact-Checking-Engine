@@ -7,5 +7,15 @@
     "default_popup": "popup.html",
     "default_title": "Verify Claim"
   },
-  "permissions": []
+  "icons": {
+    "128": "icon.png"
+  },
+  "permissions": [
+    "contextMenus",
+    "notifications"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 }
+
