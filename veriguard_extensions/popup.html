@@ -136,11 +136,53 @@
       color: #90caf9;
       text-decoration: underline;
     }
+    .dashboard {
+    display: flex;
+    justify-content: space-between;
+    background-color: #2b2b36;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    border: 1px solid #3f3f4e;
+  }
+  .stat-box {
+    text-align: center;
+    flex: 1;
+  }
+  .stat-box:not(:last-child) {
+    border-right: 1px solid #3f3f4e;
+  }
+  .stat-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #ffffff;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+  }
   </style>
 </head>
 
 <body>
   <h3><img src="icon.png" alt="logo"> VeriGuard Engine</h3>
+  <div class="dashboard">
+    <div class="stat-box">
+      <div class="stat-value" id="stat-total">0</div>
+      <div class="stat-label">Total Checks</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value" id="stat-true" style="color: #81c784;">0</div>
+      <div class="stat-label">Verified</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-value" id="stat-false" style="color: #e57373;">0</div>
+      <div class="stat-label">Debunked</div>
+    </div>
+  </div>
   <textarea id="claimInput" placeholder="Paste a claim here..."></textarea>
   <button id="verifyBtn">Verify Claim</button>
 
