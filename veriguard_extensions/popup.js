@@ -1,50 +1,78 @@
 document.getElementById('verifyBtn').addEventListener('click', async () => {
-    const claim = document.getElementById('claimInput').value;
+    const rawClaim = document.getElementById('claimInput').value;
+    if (!rawClaim) return;
+
+    // 1. Clean the claim to create a reliable cache key
+    // This ensures "The RBI..." and "the rbi..." are treated as the same claim
+    const cacheKey = "cache_" + rawClaim.trim().toLowerCase();
+
     const resultBox = document.getElementById('resultBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
 
-    if (!claim) return;
-
-    // Show loading state
+    // UI Loading State
     resultBox.style.display = 'block';
     resultBox.className = 'neutral';
-    verdictText.innerText = "Retrieving live data...";
+    verdictText.innerText = "Querying Edge Cache...";
     sourceLink.style.display = 'none';
 
-    try {
-        // Send the claim to your local FastAPI server
-        const response = await fetch('http://127.0.0.1:8000/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ claim: claim })
-        });
+    // 2. Check the Local Storage Cache first
+    chrome.storage.local.get([cacheKey], async (result) => {
+        if (result[cacheKey]) {
+            // CACHE HIT: Instantly display the saved data
+            displayResult(result[cacheKey].verdict, result[cacheKey].source, true);
+            return; // Exit early, do not call the Python server!
+        }
 
-        const data = await response.json();
+        // CACHE MISS: Call your local FastAPI server
+        verdictText.innerText = "Retrieving live ground-truth data...";
+        try {
+            const response = await fetch('http://127.0.0.1:8000/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ claim: rawClaim })
+            });
 
-        // Update the UI based on the AI's verdict
-        verdictText.innerText = `[VERDICT: ${data.verdict.toUpperCase()}]`;
-        
-        if (data.verdict.includes("Entailment")) {
-            resultBox.className = 'entailment';
-        } else if (data.verdict.includes("Contradiction")) {
+            const data = await response.json();
+
+            // Save the AI's math to the cache for the future
+            const cacheData = { verdict: data.verdict, source: data.source };
+            chrome.storage.local.set({ [cacheKey]: cacheData });
+
+            // Display the result and update your dashboard stats
+            displayResult(data.verdict, data.source, false);
+            updateStats(data.verdict); // Calls your dashboard tracker
+
+        } catch (error) {
+            verdictText.innerText = "Error: Ensure FastAPI server is running.";
             resultBox.className = 'contradiction';
-        } else {
-            resultBox.className = 'neutral';
         }
-
-        if (data.source) {
-            sourceLink.href = data.source;
-            sourceLink.style.display = 'inline';
-        }
-        updateStats(data.verdict);
-
-    } catch (error) {
-        verdictText.innerText = "Error: Ensure FastAPI server is running.";
-        resultBox.className = 'contradiction';
-    }
+    });
 });
 
+// Helper function to handle the UI to keep the code clean
+function displayResult(verdict, source, isCached) {
+    const resultBox = document.getElementById('resultBox');
+    const verdictText = document.getElementById('verdictText');
+    const sourceLink = document.getElementById('sourceLink');
+
+    // The Flex: Add a lightning bolt if the result was pulled from the cache
+    const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
+    verdictText.innerText = `[VERDICT: ${verdict.toUpperCase()}]${cacheBadge}`;
+
+    if (verdict.includes("Entailment")) {
+        resultBox.className = 'entailment';
+    } else if (verdict.includes("Contradiction")) {
+        resultBox.className = 'contradiction';
+    } else {
+        resultBox.className = 'neutral';
+    }
+
+    if (source) {
+        sourceLink.href = source;
+        sourceLink.style.display = 'inline';
+    }
+}
 // Load stats when the popup opens
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['total', 'trueCount', 'falseCount'], (data) => {
