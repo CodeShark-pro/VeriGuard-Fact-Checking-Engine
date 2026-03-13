@@ -21,11 +21,20 @@
       color: #ffffff;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      /* Perfectly spaces the icon, text, and dot */
     }
 
-    /* Add a little green dot next to the title to show it's "Live" */
-    h3::before {
+    /* Sizes your icon to match the text height perfectly */
+    h3 img {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      /* Optional: smoothly rounds the icon corners slightly */
+    }
+
+    /* Moves the green dot to the RIGHT side of the text */
+    h3::after {
       content: '';
       display: inline-block;
       width: 10px;
@@ -33,6 +42,8 @@
       background-color: #4caf50;
       border-radius: 50%;
       box-shadow: 0 0 8px #4caf50;
+      margin-left: 4px;
+      /* Gives it just a little breathing room from the 'e' */
     }
 
     textarea {
@@ -129,7 +140,7 @@
 </head>
 
 <body>
-  <h3>VeriGuard Engine</h3>
+  <h3><img src="icon.png" alt="logo"> VeriGuard Engine</h3>
   <textarea id="claimInput" placeholder="Paste a claim here..."></textarea>
   <button id="verifyBtn">Verify Claim</button>
 
