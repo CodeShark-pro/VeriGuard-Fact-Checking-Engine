@@ -1,6 +1,6 @@
 # VeriGuard: Autonomous Claim Verification via Retrieval-Augmented Architecture
 
-[cite_start]VeriGuard is an automated engine that actively searches for trusted live data to verify claims[cite: 7]. Built to combat zero-day disinformation, it replaces standard text generation with a deterministic Retrieval-Augmented Classification (RAC) pipeline. [cite_start]Instead of generating text like a standard RAG model, it strictly classifies a claim as mathematically true or false[cite: 8].
+[cite_start] VeriGuard is an automated engine that actively searches for trusted live data to verify claims[cite: 7]. Built to combat zero-day disinformation, it replaces standard text generation with a deterministic Retrieval-Augmented Classification (RAC) pipeline. [cite_start] Instead of generating text like a standard RAG model, it strictly classifies a claim as mathematically true or false[cite: 8].
 
 ## 🚨 The Problem
 
