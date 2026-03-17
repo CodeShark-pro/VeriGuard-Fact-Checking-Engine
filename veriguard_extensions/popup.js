@@ -3,7 +3,6 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     if (!rawClaim) return;
 
     // 1. Clean the claim to create a reliable cache key
-    // This ensures "The RBI..." and "the rbi..." are treated as the same claim
     const cacheKey = "cache_" + rawClaim.trim().toLowerCase();
 
     const resultBox = document.getElementById('resultBox');
@@ -19,12 +18,12 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     // 2. Check the Local Storage Cache first
     chrome.storage.local.get([cacheKey], async (result) => {
         if (result[cacheKey]) {
-            // CACHE HIT: Instantly display the saved data
+            // CACHE HIT
             displayResult(result[cacheKey].verdict, result[cacheKey].source, true);
-            return; // Exit early, do not call the Python server!
+            return; 
         }
 
-        // CACHE MISS: Call your local FastAPI server
+        // CACHE MISS: Call FastAPI
         verdictText.innerText = "Retrieving live ground-truth data...";
         try {
             const response = await fetch('http://127.0.0.1:8000/verify', {
@@ -35,13 +34,13 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
 
             const data = await response.json();
 
-            // Save the AI's math to the cache for the future
+            // Save to cache
             const cacheData = { verdict: data.verdict, source: data.source };
             chrome.storage.local.set({ [cacheKey]: cacheData });
 
-            // Display the result and update your dashboard stats
+            // Display result and update dashboard
             displayResult(data.verdict, data.source, false);
-            updateStats(data.verdict); // Calls your dashboard tracker
+            updateStats(data.verdict); 
 
         } catch (error) {
             verdictText.innerText = "Error: Ensure FastAPI server is running.";
@@ -50,33 +49,12 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     });
 });
 
-// Helper function to handle the UI to keep the code clean
+// Helper function to handle the UI and Notifications
 function displayResult(verdict, source, isCached) {
     const resultBox = document.getElementById('resultBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
 
-    // The Flex: Add a lightning bolt if the result was pulled from the cache
-    const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
-    verdictText.innerText = `[VERDICT: ${verdict.toUpperCase()}]${cacheBadge}`;
-
-    if (verdict.includes("Entailment")) {
-        resultBox.className = 'entailment';
-    } else if (verdict.includes("Contradiction")) {
-        resultBox.className = 'contradiction';
-    } else {
-        resultBox.className = 'neutral';
-    }
-
-    if (source) {
-        sourceLink.href = source;
-        sourceLink.style.display = 'inline';
-    }
-    function displayResult(verdict, source, isCached) {
-    const resultBox = document.getElementById('resultBox');
-    const verdictText = document.getElementById('verdictText');
-    const sourceLink = document.getElementById('sourceLink');
-
     const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
     verdictText.innerText = `[VERDICT: ${verdict.toUpperCase()}]${cacheBadge}`;
 
@@ -93,7 +71,7 @@ function displayResult(verdict, source, isCached) {
         sourceLink.style.display = 'inline';
     }
 
-    // ADD THIS: Push the Windows/System notification
+    // Push the Windows/System notification
     chrome.notifications.create({
         type: "basic",
         iconUrl: "icon.png",
@@ -102,7 +80,7 @@ function displayResult(verdict, source, isCached) {
         priority: 2
     });
 }
-}
+
 // Load stats when the popup opens
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['total', 'trueCount', 'falseCount'], (data) => {
@@ -112,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Helper function to update stats after a successful API call
+// Helper function to update dashboard stats
 function updateStats(verdict) {
     chrome.storage.local.get(['total', 'trueCount', 'falseCount'], (data) => {
         let total = (data.total || 0) + 1;
@@ -122,7 +100,6 @@ function updateStats(verdict) {
         if (verdict.includes("Entailment")) trueCount++;
         if (verdict.includes("Contradiction")) falseCount++;
 
-        // Save back to storage and update UI
         chrome.storage.local.set({ total, trueCount, falseCount });
         document.getElementById('stat-total').innerText = total;
         document.getElementById('stat-true').innerText = trueCount;
@@ -134,13 +111,11 @@ function updateStats(verdict) {
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['autoVerifyClaim'], (data) => {
         if (data.autoVerifyClaim) {
-            // 1. Fill the text box with the highlighted text
+            // Fill the text box
             document.getElementById('claimInput').value = data.autoVerifyClaim;
-            
-            // 2. Delete it from storage so it doesn't auto-run next time you click the icon normally
+            // Delete it from storage 
             chrome.storage.local.remove('autoVerifyClaim');
-            
-            // 3. Programmatically click the "Verify Claim" button to start the engine
+            // Click the Verify button
             document.getElementById('verifyBtn').click();
         }
     });
