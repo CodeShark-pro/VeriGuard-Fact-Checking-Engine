@@ -72,6 +72,36 @@ function displayResult(verdict, source, isCached) {
         sourceLink.href = source;
         sourceLink.style.display = 'inline';
     }
+    function displayResult(verdict, source, isCached) {
+    const resultBox = document.getElementById('resultBox');
+    const verdictText = document.getElementById('verdictText');
+    const sourceLink = document.getElementById('sourceLink');
+
+    const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
+    verdictText.innerText = `[VERDICT: ${verdict.toUpperCase()}]${cacheBadge}`;
+
+    if (verdict.includes("Entailment")) {
+        resultBox.className = 'entailment';
+    } else if (verdict.includes("Contradiction")) {
+        resultBox.className = 'contradiction';
+    } else {
+        resultBox.className = 'neutral';
+    }
+
+    if (source) {
+        sourceLink.href = source;
+        sourceLink.style.display = 'inline';
+    }
+
+    // ADD THIS: Push the Windows/System notification
+    chrome.notifications.create({
+        type: "basic",
+        iconUrl: "icon.png",
+        title: `[${verdict.toUpperCase()}]${isCached ? ' ⚡' : ''}`,
+        message: `Source: ${source || 'No whitelisted source found.'}`,
+        priority: 2
+    });
+}
 }
 // Load stats when the popup opens
 document.addEventListener('DOMContentLoaded', () => {
@@ -99,3 +129,19 @@ function updateStats(verdict) {
         document.getElementById('stat-false').innerText = falseCount;
     });
 }
+
+// AUTO-RUN LOGIC FOR RIGHT-CLICK MENU
+document.addEventListener('DOMContentLoaded', () => {
+    chrome.storage.local.get(['autoVerifyClaim'], (data) => {
+        if (data.autoVerifyClaim) {
+            // 1. Fill the text box with the highlighted text
+            document.getElementById('claimInput').value = data.autoVerifyClaim;
+            
+            // 2. Delete it from storage so it doesn't auto-run next time you click the icon normally
+            chrome.storage.local.remove('autoVerifyClaim');
+            
+            // 3. Programmatically click the "Verify Claim" button to start the engine
+            document.getElementById('verifyBtn').click();
+        }
+    });
+});

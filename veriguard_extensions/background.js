@@ -1,3 +1,4 @@
+// Create the right-click menu
 chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({
         id: "verifyClaim",
@@ -6,37 +7,13 @@ chrome.runtime.onInstalled.addListener(() => {
     });
 });
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+// Listen for the right-click
+chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === "verifyClaim") {
-        const claim = info.selectionText;
-
-        try {
-            // Wait for the local AI to process the claim
-            const response = await fetch('http://127.0.0.1:8000/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ claim: claim })
-            });
-
-            const data = await response.json();
-
-            // Push the final verdict to the Windows Action Center
-            chrome.notifications.create({
-                type: "basic",
-                iconUrl: "icon.png",
-                title: `[${data.verdict.toUpperCase()}]`,
-                message: `Source: ${data.source || 'No whitelisted source found.'}`,
-                priority: 2
-            });
-
-        } catch (error) {
-            chrome.notifications.create({
-                type: "basic",
-                iconUrl: "icon.png",
-                title: "Connection Error",
-                message: "Ensure your FastAPI server is running.",
-                priority: 2
-            });
-        }
+        // 1. Save the highlighted text to local storage
+        chrome.storage.local.set({ "autoVerifyClaim": info.selectionText }, () => {
+            // 2. Programmatically force the extension popup to open!
+            chrome.action.openPopup();
+        });
     }
 });
