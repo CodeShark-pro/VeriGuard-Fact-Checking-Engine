@@ -12,6 +12,7 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     // UI Loading State
     resultBox.style.display = 'block';
     resultBox.className = 'neutral';
+    verdictText.className = 'loading-pulse';
     verdictText.innerText = "Querying Edge Cache...";
     sourceLink.style.display = 'none';
 
