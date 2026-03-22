@@ -55,6 +55,7 @@ function displayResult(verdict, source, isCached, snippet = null) {
     const resultBox = document.getElementById('resultBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
+    verdictText.className = '';
     
     // We will create a new div for the snippet if it doesn't exist yet
     let snippetBox = document.getElementById('snippetBox');
