@@ -19,7 +19,7 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     chrome.storage.local.get([cacheKey], async (result) => {
         if (result[cacheKey]) {
             // CACHE HIT
-            displayResult(result[cacheKey].verdict, result[cacheKey].source, true);
+            displayResult(result[cacheKey].verdict, result[cacheKey].source, true, result[cacheKey].snippet);
             return; 
         }
 
@@ -35,11 +35,11 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
             const data = await response.json();
 
             // Save to cache
-            const cacheData = { verdict: data.verdict, source: data.source };
+            const cacheData = { verdict: data.verdict, source: data.source, snippet: data.snippet };
             chrome.storage.local.set({ [cacheKey]: cacheData });
 
             // Display result and update dashboard
-            displayResult(data.verdict, data.source, false);
+            displayResult(data.verdict, data.source, false, data.snippet);
             updateStats(data.verdict); 
 
         } catch (error) {
@@ -50,33 +50,74 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
 });
 
 // Helper function to handle the UI and Notifications
-function displayResult(verdict, source, isCached) {
+function displayResult(verdict, source, isCached, snippet = null) {
     const resultBox = document.getElementById('resultBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
+    
+    // We will create a new div for the snippet if it doesn't exist yet
+    let snippetBox = document.getElementById('snippetBox');
+    if (!snippetBox) {
+        snippetBox = document.createElement('div');
+        snippetBox.id = 'snippetBox';
+        snippetBox.style.marginTop = '10px';
+        snippetBox.style.fontStyle = 'italic';
+        snippetBox.style.color = '#ccc';
+        resultBox.insertBefore(snippetBox, sourceLink);
+    }
 
-    const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
-    verdictText.innerText = `[VERDICT: ${verdict.toUpperCase()}]${cacheBadge}`;
+    // 1. Translate Academic Jargon to Human UX
+    let friendlyVerdict = "UNKNOWN";
+    let statusIcon = "❓";
 
     if (verdict.includes("Entailment")) {
         resultBox.className = 'entailment';
+        friendlyVerdict = "VERIFIED TRUE";
+        statusIcon = "✅";
     } else if (verdict.includes("Contradiction")) {
         resultBox.className = 'contradiction';
+        friendlyVerdict = "DEBUNKED (FALSE)";
+        statusIcon = "❌";
     } else {
         resultBox.className = 'neutral';
+        friendlyVerdict = "UNVERIFIED";
+        statusIcon = "⚠️";
     }
 
+    const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
+    verdictText.innerText = `${statusIcon} [${friendlyVerdict}]${cacheBadge}`;
+
+    // 2. Display the actual "True Statement" context
+    if (snippet) {
+        snippetBox.innerText = `"${snippet}"`;
+        snippetBox.style.display = 'block';
+    } else {
+        snippetBox.style.display = 'none';
+    }
+
+    // 3. Smart Domain Formatting for the Link
     if (source) {
-        sourceLink.href = source;
-        sourceLink.style.display = 'inline';
+        try {
+            // Extracts "reuters.com" from a long URL
+            const domainName = new URL(source).hostname.replace('www.', '');
+            sourceLink.innerText = `Read full report on ${domainName}`;
+            sourceLink.href = source;
+            sourceLink.style.display = 'inline-block';
+            sourceLink.style.marginTop = '12px';
+        } catch (e) {
+            sourceLink.innerText = "View Source Article";
+            sourceLink.href = source;
+        }
+    } else {
+        sourceLink.style.display = 'none';
     }
 
     // Push the Windows/System notification
     chrome.notifications.create({
         type: "basic",
         iconUrl: "icon.png",
-        title: `[${verdict.toUpperCase()}]${isCached ? ' ⚡' : ''}`,
-        message: `Source: ${source || 'No whitelisted source found.'}`,
+        title: `${statusIcon} ${friendlyVerdict} ${isCached ? '⚡' : ''}`,
+        message: source ? `Source: ${new URL(source).hostname.replace('www.', '')}` : 'No whitelisted source found.',
         priority: 2
     });
 }
