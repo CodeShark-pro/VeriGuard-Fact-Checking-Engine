@@ -72,7 +72,32 @@
       border-color: #4caf50;
       box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
     }
+    
+    .input-wrapper {
+  position: relative;
+}
 
+#clearBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background-color: transparent;
+  color: #888;
+  border-radius: 4px;
+  font-size: 12px;
+  display: none; /* Hidden by default */
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+#clearBtn:hover {
+  background-color: rgba(244, 67, 54, 0.2); /* Subtle red glow */
+  color: #e57373;
+}
     button {
       width: 100%;
       padding: 12px;
@@ -193,7 +218,10 @@
       <div class="stat-label">Debunked</div>
     </div>
   </div>
-  <textarea id="claimInput" placeholder="Paste a claim here..."></textarea>
+  <div class="input-wrapper">
+    <textarea id="claimInput" placeholder="Paste a claim here..."></textarea>
+    <button id="clearBtn" title="Clear text">✖</button>
+  </div>
   <button id="verifyBtn">Verify Claim</button>
 
   <div id="resultBox">

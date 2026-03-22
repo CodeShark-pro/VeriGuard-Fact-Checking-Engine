@@ -1,3 +1,20 @@
+// --- CLEAR BUTTON LOGIC ---
+const claimInput = document.getElementById('claimInput');
+const clearBtn = document.getElementById('clearBtn');
+
+// 1. Show the 'X' only when there is text
+claimInput.addEventListener('input', () => {
+    clearBtn.style.display = claimInput.value.trim().length > 0 ? 'flex' : 'none';
+});
+
+// 2. Clear everything when the 'X' is clicked
+clearBtn.addEventListener('click', () => {
+    claimInput.value = '';
+    clearBtn.style.display = 'none';
+    document.getElementById('resultBox').style.display = 'none'; // Hides the old result
+    claimInput.focus(); // Puts the blinking cursor back in the box
+});
+
 document.getElementById('verifyBtn').addEventListener('click', async () => {
     const rawClaim = document.getElementById('claimInput').value;
     if (!rawClaim) return;
@@ -56,7 +73,7 @@ function displayResult(verdict, source, isCached, snippet = null) {
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
     verdictText.className = '';
-    
+
     // We will create a new div for the snippet if it doesn't exist yet
     let snippetBox = document.getElementById('snippetBox');
     if (!snippetBox) {
@@ -156,6 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.autoVerifyClaim) {
             // Fill the text box
             document.getElementById('claimInput').value = data.autoVerifyClaim;
+            document.getElementById('clearBtn').style.display = 'flex'; 
             // Delete it from storage 
             chrome.storage.local.remove('autoVerifyClaim');
             // Click the Verify button
