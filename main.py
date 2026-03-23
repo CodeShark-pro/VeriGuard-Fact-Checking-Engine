@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 
+load_dotenv()
+
 # Securely grab the connection string
 MONGO_DETAILS = os.getenv("MONGO_URI")
 
