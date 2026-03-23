@@ -4,6 +4,12 @@ from ddgs import DDGS
 from sentence_transformers import CrossEncoder
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+
+MONGO_DETAILS = "mongodb://localhost:27017"
+client = AsyncIOMotorClient(MONGO_DETAILS)
+database = client.veriguard
+claim_collection = database.claims
 
 # Suppress Windows symlink warnings
 warnings.filterwarnings("ignore")
@@ -42,12 +48,38 @@ def load_model():
 class ClaimRequest(BaseModel):
     claim: str
 
-# 4. Verification Endpoint
+# 5. Caching functions
+async def check_global_cache(claim_text: str):
+    cached_result = await claim_collection.find_one({"claim": claim_text})
+    if cached_result:
+        cached_result["_id"] = str(cached_result["_id"])
+    return cached_result
+
+async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet: str):
+    new_entry = {
+        "claim": claim_text,
+        "verdict": verdict,
+        "source": source_url,
+        "snippet": snippet
+    }
+    await claim_collection.insert_one(new_entry)
+
+
 @app.post("/verify")
 async def verify_claim(request: ClaimRequest):
-    claim = request.claim
+    normalized_claim = request.claim.strip().lower()
     
-    # Retrieval Layer
+    cached_data = await check_global_cache(normalized_claim)
+    if cached_data:
+        return {
+            "claim": request.claim,
+            "verdict": cached_data["verdict"],
+            "source": cached_data["source"],
+            "snippet": cached_data["snippet"],
+            "is_cached_globally": True
+        }
+
+    claim = request.claim
     snippet = ""
     source_url = ""
     
@@ -60,24 +92,29 @@ async def verify_claim(request: ClaimRequest):
                 source_url = res.get('href', '')
                 break
                 
-    # If no trusted sources report on it
     if not snippet:
+        unverified_verdict = "Neutral (Unverified)"
+        unverified_snippet = "No data found in whitelisted sources."
+        await save_to_cache(normalized_claim, unverified_verdict, None, unverified_snippet)
+        
         return {
             "claim": claim,
-            "verdict": "Unverified",
+            "verdict": unverified_verdict,
             "source": None,
-            "snippet": "No data found in whitelisted sources."
+            "snippet": unverified_snippet,
+            "is_cached_globally": False
         }
         
-    # Verification Layer
     scores = model.predict([(snippet, claim)])
     labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
     winner = labels[scores[0].argmax()]
     
-    # Return the final JSON payload
+    await save_to_cache(normalized_claim, winner, source_url, snippet)
+    
     return {
         "claim": claim,
         "verdict": winner,
         "source": source_url,
-        "snippet": snippet
+        "snippet": snippet,
+        "is_cached_globally": False
     }
