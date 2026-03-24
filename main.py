@@ -7,6 +7,8 @@ import warnings
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
+from bs4 import BeautifulSoup
+import httpx
 
 load_dotenv()
 
@@ -70,6 +72,25 @@ async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet:
     }
     await claim_collection.insert_one(new_entry)
 
+async def scrape_article_text(url: str) -> str:
+    try:
+        # We use a 5-second timeout so a slow website doesn't freeze your engine
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # We must use a User-Agent so news sites don't block us thinking we are a bot
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            response = await client.get(url, headers=headers, follow_redirects=True)
+            
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                # Find all paragraph tags
+                paragraphs = soup.find_all('p')
+                # Combine the first 3 paragraphs to give DeBERTa solid context
+                extracted_text = " ".join([p.get_text().strip() for p in paragraphs[:3]])
+                return extracted_text
+    except Exception as e:
+        print(f"Scraping error: {e}")
+        return ""
+    return ""
 
 @app.post("/verify")
 async def verify_claim(request: ClaimRequest):
@@ -94,8 +115,17 @@ async def verify_claim(request: ClaimRequest):
         for res in results:
             url = res.get('href', '').lower()
             if any(trusted in url for trusted in whitelist):
-                snippet = res.get('body', '')
                 source_url = res.get('href', '')
+                
+                # 1. Try to scrape the actual article text
+                scraped_text = await scrape_article_text(source_url)
+                
+                # 2. If our scraper got good text, use it. Otherwise, fallback to DDG's snippet.
+                if scraped_text and len(scraped_text) > 50:
+                    snippet = scraped_text
+                else:
+                    snippet = res.get('body', '')
+                    
                 break
                 
     if not snippet:
