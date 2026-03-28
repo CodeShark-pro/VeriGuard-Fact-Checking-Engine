@@ -9,18 +9,18 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import httpx
-import certifi 
+
 load_dotenv()
 
 MONGO_DETAILS = os.getenv("MONGO_URI")
 
 if not MONGO_DETAILS:
-    print("⚠️ WARNING: Could not find MONGO_URI in .env file!")
+    print("WARNING: Could not find MONGO_URI in .env file!")
 
-client = AsyncIOMotorClient(MONGO_DETAILS, tlsCAFile=certifi.where()) 
-
+client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.veriguard
 claim_collection = database.claims
+
 # Suppress Windows symlink warnings
 warnings.filterwarnings("ignore")
 
