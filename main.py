@@ -9,6 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import httpx
+import re
 
 load_dotenv()
 
@@ -94,10 +95,33 @@ async def scrape_article_text(url: str) -> str:
         return ""
     return ""
 
+def is_question(text: str) -> bool:
+    text = text.strip().lower()
+    # Check 1: Does it end with a question mark?
+    if text.endswith('?'):
+        return True
+    
+    # Check 2: Does it start with a common question word?
+    question_patterns = r"^(who|what|where|when|why|how|is|are|do|does|did|can|could|should|would|will)\b"
+    if re.match(question_patterns, text):
+        return True
+        
+    return False
+
+
 @app.post("/verify")
 async def verify_claim(request: ClaimRequest):
     normalized_claim = request.claim.strip().lower()
     
+    if is_question(normalized_claim):
+        return {
+            "claim": request.claim,
+            "verdict": "Invalid (Not a Claim)",
+            "source": None,
+            "snippet": "VeriGuard checks factual statements, not questions. Please rewrite this as a declarative claim (e.g., instead of 'Is the sky blue?', type 'The sky is blue.').",
+            "is_cached_globally": False
+        }
+        
     cached_data = await check_global_cache(normalized_claim)
     if cached_data:
         return {

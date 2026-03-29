@@ -97,6 +97,13 @@ function displayResult(verdict, source, isCached, snippet = null) {
         resultBox.className = 'contradiction';
         friendlyVerdict = "DEBUNKED (FALSE)";
         statusIcon = "❌";
+    } else if (verdict.includes("Invalid")) {
+        // NEW: Handle Questions gracefully
+        resultBox.className = 'neutral'; // Or you can create a '.warning' CSS class!
+        resultBox.style.borderColor = "#ffb74d"; 
+        resultBox.style.color = "#ffb74d";
+        friendlyVerdict = "FORMAT ERROR";
+        statusIcon = "🛑";
     } else {
         resultBox.className = 'neutral';
         friendlyVerdict = "UNVERIFIED";
