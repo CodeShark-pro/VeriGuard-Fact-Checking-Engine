@@ -38,12 +38,35 @@ app.add_middleware(
 
 # 1. Global variables
 model = None
+
 # The Expanded VeriGuard Whitelist
 whitelist = [
-    # Breaking News & Govt
-    "reuters.com", "thehindu.com", "apnews.com", "pib.gov.in", "indianexpress.com", "timesofindia.indiatimes.com",
-    # Static Knowledge & Fact-Checking
-    "wikipedia.org", "britannica.com", "snopes.com", "politifact.com"
+    # 1. Global News Wires & Agencies (The Gold Standard for raw facts)
+    "reuters.com", "apnews.com", "afp.com", "bloomberg.com", "upi.com",
+
+    # 2. International Broadcasters & Papers of Record
+    "bbc.com", "bbc.co.uk", "npr.org", "nytimes.com", "wsj.com", 
+    "theguardian.com", "ft.com", "aljazeera.com", "washingtonpost.com",
+
+    # 3. Major Indian National Media & Financial
+    "thehindu.com", "indianexpress.com", "timesofindia.indiatimes.com", 
+    "ndtv.com", "hindustantimes.com", "livemint.com", "business-standard.com", 
+    "theprint.in", "scroll.in", "indiatoday.in", "moneycontrol.com",
+
+    # 4. Dedicated Fact-Checking Organizations
+    "snopes.com", "politifact.com", "factcheck.org", "fullfact.org", 
+    "leadstories.com", "altnews.in", "boomlive.in", "newschecker.in",
+
+    # 5. Science, Medical & Academic Journals
+    "nature.com", "science.org", "thelancet.com", "nejm.org", 
+    "ieee.org", "smithsonianmag.com", "nationalgeographic.com",
+
+    # 6. Static Knowledge & Encyclopedias
+    "wikipedia.org", "britannica.com", "investopedia.com", "history.com",
+
+    # 7. Official Government & International Institutions
+    "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org", 
+    "nasa.gov", "cdc.gov", "rbi.org.in"
 ]
 
 # 2. Load AI model into memory when the server starts
