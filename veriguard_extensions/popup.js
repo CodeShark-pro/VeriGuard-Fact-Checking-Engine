@@ -1,48 +1,43 @@
-// --- CLEAR BUTTON LOGIC ---
 const claimInput = document.getElementById('claimInput');
 const clearBtn = document.getElementById('clearBtn');
 
-// 1. Show the 'X' only when there is text
 claimInput.addEventListener('input', () => {
     clearBtn.style.display = claimInput.value.trim().length > 0 ? 'flex' : 'none';
 });
 
-// 2. Clear everything when the 'X' is clicked
 clearBtn.addEventListener('click', () => {
     claimInput.value = '';
     clearBtn.style.display = 'none';
-    document.getElementById('resultBox').style.display = 'none'; // Hides the old result
-    claimInput.focus(); // Puts the blinking cursor back in the box
+    document.getElementById('resultBox').style.display = 'none'; 
+    document.getElementById('aiComparisonBox').style.display = 'none';
+    claimInput.focus(); 
 });
 
 document.getElementById('verifyBtn').addEventListener('click', async () => {
     const rawClaim = document.getElementById('claimInput').value;
     if (!rawClaim) return;
 
-    // 1. Clean the claim to create a reliable cache key
     const cacheKey = "cache_" + rawClaim.trim().toLowerCase();
 
     const resultBox = document.getElementById('resultBox');
+    const aiBox = document.getElementById('aiComparisonBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
 
-    // UI Loading State
     resultBox.style.display = 'block';
+    aiBox.style.display = 'none';
     resultBox.className = 'neutral';
     verdictText.className = 'loading-pulse';
-    verdictText.innerText = "Querying Edge Cache...";
+    verdictText.innerText = "Executing parallel pipeline...";
     sourceLink.style.display = 'none';
 
-    // 2. Check the Local Storage Cache first
     chrome.storage.local.get([cacheKey], async (result) => {
         if (result[cacheKey]) {
-            // CACHE HIT
-            displayResult(result[cacheKey].verdict, result[cacheKey].source, true, result[cacheKey].snippet);
+            displayResult(result[cacheKey].veriguard, result[cacheKey].secondary_ai, true);
             return; 
         }
 
-        // CACHE MISS: Call FastAPI
-        verdictText.innerText = "Retrieving live ground-truth data...";
+        verdictText.innerText = "Retrieving ground-truth & calling Gemini...";
         try {
             const response = await fetch('http://127.0.0.1:8000/verify', {
                 method: 'POST',
@@ -52,13 +47,10 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
 
             const data = await response.json();
 
-            // Save to cache
-            const cacheData = { verdict: data.verdict, source: data.source, snippet: data.snippet };
-            chrome.storage.local.set({ [cacheKey]: cacheData });
+            chrome.storage.local.set({ [cacheKey]: data });
 
-            // Display result and update dashboard
-            displayResult(data.verdict, data.source, false, data.snippet);
-            updateStats(data.verdict); 
+            displayResult(data.veriguard, data.secondary_ai, false);
+            updateStats(data.veriguard.verdict); 
 
         } catch (error) {
             verdictText.innerText = "Error: Ensure FastAPI server is running.";
@@ -67,14 +59,16 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
     });
 });
 
-// Helper function to handle the UI and Notifications
-function displayResult(verdict, source, isCached, snippet = null) {
+function displayResult(vgData, aiData, isCached) {
     const resultBox = document.getElementById('resultBox');
     const verdictText = document.getElementById('verdictText');
     const sourceLink = document.getElementById('sourceLink');
+    const aiBox = document.getElementById('aiComparisonBox');
+    const aiVerdictText = document.getElementById('aiVerdictText');
+    const aiReasonText = document.getElementById('aiReasonText');
+    
     verdictText.className = '';
 
-    // We will create a new div for the snippet if it doesn't exist yet
     let snippetBox = document.getElementById('snippetBox');
     if (!snippetBox) {
         snippetBox = document.createElement('div');
@@ -85,21 +79,19 @@ function displayResult(verdict, source, isCached, snippet = null) {
         resultBox.insertBefore(snippetBox, sourceLink);
     }
 
-    // 1. Translate Academic Jargon to Human UX
     let friendlyVerdict = "UNKNOWN";
     let statusIcon = "❓";
 
-    if (verdict.includes("Entailment")) {
+    if (vgData.verdict.includes("Entailment")) {
         resultBox.className = 'entailment';
         friendlyVerdict = "VERIFIED TRUE";
         statusIcon = "✅";
-    } else if (verdict.includes("Contradiction")) {
+    } else if (vgData.verdict.includes("Contradiction")) {
         resultBox.className = 'contradiction';
         friendlyVerdict = "DEBUNKED (FALSE)";
         statusIcon = "❌";
-    } else if (verdict.includes("Invalid")) {
-        // NEW: Handle Questions gracefully
-        resultBox.className = 'neutral'; // Or you can create a '.warning' CSS class!
+    } else if (vgData.verdict.includes("Invalid")) {
+        resultBox.className = 'neutral'; 
         resultBox.style.borderColor = "#ffb74d"; 
         resultBox.style.color = "#ffb74d";
         friendlyVerdict = "FORMAT ERROR";
@@ -113,42 +105,55 @@ function displayResult(verdict, source, isCached, snippet = null) {
     const cacheBadge = isCached ? " ⚡ (0ms Edge Cache)" : "";
     verdictText.innerText = `${statusIcon} [${friendlyVerdict}]${cacheBadge}`;
 
-    // 2. Display the actual "True Statement" context
-    if (snippet) {
-        snippetBox.innerText = `"${snippet}"`;
+    if (vgData.snippet) {
+        snippetBox.innerText = `"${vgData.snippet}"`;
         snippetBox.style.display = 'block';
     } else {
         snippetBox.style.display = 'none';
     }
 
-    // 3. Smart Domain Formatting for the Link
-    if (source) {
+    if (vgData.source) {
         try {
-            // Extracts "reuters.com" from a long URL
-            const domainName = new URL(source).hostname.replace('www.', '');
+            const domainName = new URL(vgData.source).hostname.replace('www.', '');
             sourceLink.innerText = `Read full report on ${domainName}`;
-            sourceLink.href = source;
+            sourceLink.href = vgData.source;
             sourceLink.style.display = 'inline-block';
             sourceLink.style.marginTop = '12px';
         } catch (e) {
             sourceLink.innerText = "View Source Article";
-            sourceLink.href = source;
+            sourceLink.href = vgData.source;
         }
     } else {
         sourceLink.style.display = 'none';
     }
 
-    // Push the Windows/System notification
+    if (aiData) {
+        aiBox.style.display = 'block';
+        
+        let aiFriendly = "UNVERIFIED";
+        let aiColor = "#e0e0e0";
+        if (aiData.verdict.includes("TRUE")) {
+            aiFriendly = "TRUE";
+            aiColor = "#81c784";
+        } else if (aiData.verdict.includes("FALSE")) {
+            aiFriendly = "FALSE";
+            aiColor = "#e57373";
+        }
+        
+        aiVerdictText.innerText = aiFriendly;
+        aiVerdictText.style.color = aiColor;
+        aiReasonText.innerText = aiData.reason || "";
+    }
+
     chrome.notifications.create({
         type: "basic",
         iconUrl: "icon.png",
         title: `${statusIcon} ${friendlyVerdict} ${isCached ? '⚡' : ''}`,
-        message: source ? `Source: ${new URL(source).hostname.replace('www.', '')}` : 'No whitelisted source found.',
+        message: vgData.source ? `Source: ${new URL(vgData.source).hostname.replace('www.', '')}` : 'No whitelisted source found.',
         priority: 2
     });
 }
 
-// Load stats when the popup opens
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['total', 'trueCount', 'falseCount'], (data) => {
         document.getElementById('stat-total').innerText = data.total || 0;
@@ -157,7 +162,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Helper function to update dashboard stats
 function updateStats(verdict) {
     chrome.storage.local.get(['total', 'trueCount', 'falseCount'], (data) => {
         let total = (data.total || 0) + 1;
@@ -174,16 +178,12 @@ function updateStats(verdict) {
     });
 }
 
-// AUTO-RUN LOGIC FOR RIGHT-CLICK MENU
 document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(['autoVerifyClaim'], (data) => {
         if (data.autoVerifyClaim) {
-            // Fill the text box
             document.getElementById('claimInput').value = data.autoVerifyClaim;
             document.getElementById('clearBtn').style.display = 'flex'; 
-            // Delete it from storage 
             chrome.storage.local.remove('autoVerifyClaim');
-            // Click the Verify button
             document.getElementById('verifyBtn').click();
         }
     });

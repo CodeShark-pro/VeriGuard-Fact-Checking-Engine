@@ -10,152 +10,124 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import httpx
 import re
+import asyncio
 
 load_dotenv()
 
 MONGO_DETAILS = os.getenv("MONGO_URI")
-
-if not MONGO_DETAILS:
-    print("WARNING: Could not find MONGO_URI in .env file!")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.veriguard
 claim_collection = database.claims
 
-# Suppress Windows symlink warnings
 warnings.filterwarnings("ignore")
 
 app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking Engine")
 
-# Allow the Chrome Extension to talk to this local server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# 1. Global variables
 model = None
-
-# The Expanded VeriGuard Whitelist
 whitelist = [
-    # 1. Global News Wires & Agencies (The Gold Standard for raw facts)
     "reuters.com", "apnews.com", "afp.com", "bloomberg.com", "upi.com",
-
-    # 2. International Broadcasters & Papers of Record
-    "bbc.com", "bbc.co.uk", "npr.org", "nytimes.com", "wsj.com", 
+    "bbc.com", "bbc.co.uk", "npr.org", "nytimes.com", "wsj.com",
     "theguardian.com", "ft.com", "aljazeera.com", "washingtonpost.com",
-
-    # 3. Major Indian National Media & Financial
-    "thehindu.com", "indianexpress.com", "timesofindia.indiatimes.com", 
-    "ndtv.com", "hindustantimes.com", "livemint.com", "business-standard.com", 
+    "thehindu.com", "indianexpress.com", "timesofindia.indiatimes.com",
+    "ndtv.com", "hindustantimes.com", "livemint.com", "business-standard.com",
     "theprint.in", "scroll.in", "indiatoday.in", "moneycontrol.com",
-
-    # 4. Dedicated Fact-Checking Organizations
-    "snopes.com", "politifact.com", "factcheck.org", "fullfact.org", 
+    "snopes.com", "politifact.com", "factcheck.org", "fullfact.org",
     "leadstories.com", "altnews.in", "boomlive.in", "newschecker.in",
-
-    # 5. Science, Medical & Academic Journals
-    "nature.com", "science.org", "thelancet.com", "nejm.org", 
+    "nature.com", "science.org", "thelancet.com", "nejm.org",
     "ieee.org", "smithsonianmag.com", "nationalgeographic.com",
-
-    # 6. Static Knowledge & Encyclopedias
     "wikipedia.org", "britannica.com", "investopedia.com", "history.com",
-
-    # 7. Official Government & International Institutions
-    "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org", 
+    "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org",
     "nasa.gov", "cdc.gov", "rbi.org.in"
 ]
 
-# 2. Load AI model into memory when the server starts
 @app.on_event("startup")
 def load_model():
     global model
     print("Initializing VeriGuard...")
-    print("Loading DeBERTa-v3 model into RAM (this takes a few seconds)...")
     model = CrossEncoder('cross-encoder/nli-deberta-v3-small')
-    print("✅ Model loaded! Server is ready for requests.")
+    print("Model loaded! Server is ready for requests.")
 
-# 3. Define the data structure we expect from the frontend
 class ClaimRequest(BaseModel):
     claim: str
 
-# 5. Caching functions
+def is_question(text: str) -> bool:
+    text = text.strip().lower()
+    if text.endswith('?'):
+        return True
+    question_patterns = r"^(who|what|where|when|why|how|is|are|do|does|did|can|could|should|would|will)\b"
+    if re.match(question_patterns, text):
+        return True
+    return False
+
 async def check_global_cache(claim_text: str):
     cached_result = await claim_collection.find_one({"claim": claim_text})
     if cached_result:
         cached_result["_id"] = str(cached_result["_id"])
     return cached_result
 
-async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet: str):
+async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet: str, ai_verdict: str, ai_reason: str):
     new_entry = {
         "claim": claim_text,
         "verdict": verdict,
         "source": source_url,
-        "snippet": snippet
+        "snippet": snippet,
+        "ai_verdict": ai_verdict,
+        "ai_reason": ai_reason
     }
     await claim_collection.insert_one(new_entry)
 
 async def scrape_article_text(url: str) -> str:
     try:
-        # We use a 5-second timeout so a slow website doesn't freeze your engine
         async with httpx.AsyncClient(timeout=5.0) as client:
-            # We must use a User-Agent so news sites don't block us thinking we are a bot
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
             response = await client.get(url, headers=headers, follow_redirects=True)
-            
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
-                # Find all paragraph tags
                 paragraphs = soup.find_all('p')
-                # Combine the first 3 paragraphs to give DeBERTa solid context
                 extracted_text = " ".join([p.get_text().strip() for p in paragraphs[:3]])
                 return extracted_text
-    except Exception as e:
-        print(f"Scraping error: {e}")
+    except Exception:
         return ""
     return ""
 
-def is_question(text: str) -> bool:
-    text = text.strip().lower()
-    # Check 1: Does it end with a question mark?
-    if text.endswith('?'):
-        return True
-    
-    # Check 2: Does it start with a common question word?
-    question_patterns = r"^(who|what|where|when|why|how|is|are|do|does|did|can|could|should|would|will)\b"
-    if re.match(question_patterns, text):
-        return True
+async def call_gemini_ai(claim: str):
+    if not GEMINI_API_KEY:
+        return {"verdict": "UNVERIFIED", "reason": "API key missing"}
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        prompt = f"You are a strict fact-checker. Respond EXACTLY in this format with no extra text: [VERDICT] | [REASON]. The VERDICT must be exactly TRUE, FALSE, or UNVERIFIED. The REASON must be one short sentence. Claim: {claim}"
         
-    return False
-
-
-@app.post("/verify")
-async def verify_claim(request: ClaimRequest):
-    normalized_claim = request.claim.strip().lower()
-    
-    if is_question(normalized_claim):
-        return {
-            "claim": request.claim,
-            "verdict": "Invalid (Not a Claim)",
-            "source": None,
-            "snippet": "VeriGuard checks factual statements, not questions. Please rewrite this as a declarative claim (e.g., instead of 'Is the sky blue?', type 'The sky is blue.').",
-            "is_cached_globally": False
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
         }
         
-    cached_data = await check_global_cache(normalized_claim)
-    if cached_data:
-        return {
-            "claim": request.claim,
-            "verdict": cached_data["verdict"],
-            "source": cached_data["source"],
-            "snippet": cached_data["snippet"],
-            "is_cached_globally": True
-        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+            
+        if response.status_code == 200:
+            data = response.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            parts = text.split('|')
+            if len(parts) >= 2:
+                v = parts[0].replace('[', '').replace(']', '').strip().upper()
+                r = parts[1].strip()
+                return {"verdict": v, "reason": r}
+        return {"verdict": "UNVERIFIED", "reason": "Formatting error from AI"}
+    except Exception:
+        return {"verdict": "UNVERIFIED", "reason": "AI Request Failed"}
+    
 
-    claim = request.claim
+async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
     
@@ -165,41 +137,79 @@ async def verify_claim(request: ClaimRequest):
             url = res.get('href', '').lower()
             if any(trusted in url for trusted in whitelist):
                 source_url = res.get('href', '')
-                
-                # 1. Try to scrape the actual article text
                 scraped_text = await scrape_article_text(source_url)
-                
-                # 2. If our scraper got good text, use it. Otherwise, fallback to DDG's snippet.
                 if scraped_text and len(scraped_text) > 50:
                     snippet = scraped_text
                 else:
                     snippet = res.get('body', '')
-                    
                 break
                 
     if not snippet:
-        unverified_verdict = "Neutral (Unverified)"
-        unverified_snippet = "No data found in whitelisted sources."
-        await save_to_cache(normalized_claim, unverified_verdict, None, unverified_snippet)
-        
         return {
-            "claim": claim,
-            "verdict": unverified_verdict,
+            "verdict": "Neutral (Unverified)",
             "source": None,
-            "snippet": unverified_snippet,
-            "is_cached_globally": False
+            "snippet": "No data found in whitelisted sources."
         }
         
     scores = model.predict([(snippet, claim)])
     labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
     winner = labels[scores[0].argmax()]
     
-    await save_to_cache(normalized_claim, winner, source_url, snippet)
-    
     return {
-        "claim": claim,
         "verdict": winner,
         "source": source_url,
-        "snippet": snippet,
+        "snippet": snippet
+    }
+
+@app.post("/verify")
+async def verify_claim(request: ClaimRequest):
+    normalized_claim = request.claim.strip().lower()
+    
+    if is_question(normalized_claim):
+        return {
+            "veriguard": {
+                "verdict": "Invalid (Not a Claim)",
+                "source": None,
+                "snippet": "VeriGuard checks factual statements, not questions. Please rewrite this as a declarative claim."
+            },
+            "secondary_ai": {
+                "verdict": "N/A",
+                "reason": "Input is a question."
+            },
+            "is_cached_globally": False
+        }
+
+    cached_data = await check_global_cache(normalized_claim)
+    if cached_data:
+        return {
+            "veriguard": {
+                "verdict": cached_data["verdict"],
+                "source": cached_data["source"],
+                "snippet": cached_data["snippet"],
+            },
+            "secondary_ai": {
+                "verdict": cached_data.get("ai_verdict", "UNVERIFIED"),
+                "reason": cached_data.get("ai_reason", "Cached before AI integration.")
+            },
+            "is_cached_globally": True
+        }
+
+    veriguard_task = run_veriguard_pipeline(request.claim, normalized_claim)
+    gemini_task = call_gemini_ai(request.claim)
+
+    vg_result, ai_result = await asyncio.gather(veriguard_task, gemini_task)
+
+    await save_to_cache(
+        normalized_claim, 
+        vg_result["verdict"], 
+        vg_result["source"], 
+        vg_result["snippet"],
+        ai_result["verdict"],
+        ai_result["reason"]
+    )
+
+    return {
+        "veriguard": vg_result,
+        "secondary_ai": ai_result,
         "is_cached_globally": False
     }
