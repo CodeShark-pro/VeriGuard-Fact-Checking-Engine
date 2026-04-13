@@ -11,11 +11,14 @@ from bs4 import BeautifulSoup
 import httpx
 import re
 import asyncio
+import spacy
 
 load_dotenv()
 
 MONGO_DETAILS = os.getenv("MONGO_URI")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# STRIP ALL QUOTES AND SPACES SO THE URL DOESN'T BREAK
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '').replace("'", "").strip()
 
 client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.veriguard
@@ -45,10 +48,13 @@ whitelist = [
     "leadstories.com", "altnews.in", "boomlive.in", "newschecker.in",
     "nature.com", "science.org", "thelancet.com", "nejm.org",
     "ieee.org", "smithsonianmag.com", "nationalgeographic.com",
-    "wikipedia.org", "britannica.com", "investopedia.com", "history.com",
+    "en.wikipedia.org", "britannica.com", "investopedia.com", "history.com",
     "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org",
     "nasa.gov", "cdc.gov", "rbi.org.in"
 ]
+
+print("Loading NLP modules...")
+nlp = spacy.load("en_core_web_sm")
 
 @app.on_event("startup")
 def load_model():
@@ -93,46 +99,75 @@ async def scrape_article_text(url: str) -> str:
             response = await client.get(url, headers=headers, follow_redirects=True)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
-                paragraphs = soup.find_all('p')
-                extracted_text = " ".join([p.get_text().strip() for p in paragraphs[:3]])
+                paragraphs = [p.get_text().strip() for p in soup.find_all('p') if len(p.get_text().strip()) > 40]
+                extracted_text = " ".join(paragraphs[:3])
                 return extracted_text
     except Exception:
         return ""
     return ""
 
+
 async def call_gemini_ai(claim: str):
     if not GEMINI_API_KEY:
-        return {"verdict": "UNVERIFIED", "reason": "API key missing"}
+        return {"verdict": "UNVERIFIED", "reason": "API key missing in .env"}
     try:
+        # Reverted to standard model name
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        prompt = f"You are a strict fact-checker. Respond EXACTLY in this format with no extra text: [VERDICT] | [REASON]. The VERDICT must be exactly TRUE, FALSE, or UNVERIFIED. The REASON must be one short sentence. Claim: {claim}"
+        prompt = f"You are a strict fact-checker. Respond EXACTLY with VERDICT | REASON. VERDICT must be TRUE, FALSE, or UNVERIFIED. REASON is one sentence. NO markdown. Claim: {claim}"
         
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(url, json=payload)
             
-        if response.status_code == 200:
-            data = response.json()
+        if response.status_code != 200:
+            return {"verdict": "UNVERIFIED", "reason": f"HTTP {response.status_code}: {response.text[:40]}"}
+            
+        data = response.json()
+        
+        try:
             text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            parts = text.split('|')
-            if len(parts) >= 2:
-                v = parts[0].replace('[', '').replace(']', '').strip().upper()
-                r = parts[1].strip()
-                return {"verdict": v, "reason": r}
-        return {"verdict": "UNVERIFIED", "reason": "Formatting error from AI"}
-    except Exception:
-        return {"verdict": "UNVERIFIED", "reason": "AI Request Failed"}
+        except (KeyError, IndexError):
+            return {"verdict": "UNVERIFIED", "reason": "Blocked by Gemini Safety Filters"}
+            
+        text = text.replace("**", "").replace("`", "").replace("[", "").replace("]", "")
+        
+        if '|' in text:
+            parts = text.split('|', 1)
+        elif '-' in text:
+            parts = text.split('-', 1)
+        else:
+            parts = text.split(' ', 1)
+            
+        if len(parts) >= 2:
+            v = parts[0].strip().upper()
+            r = parts[1].strip()
+            if "TRUE" in v: v = "TRUE"
+            elif "FALSE" in v: v = "FALSE"
+            else: v = "UNVERIFIED"
+            return {"verdict": v, "reason": r}
+            
+        return {"verdict": "UNVERIFIED", "reason": "Unparseable AI Output"}
+    except Exception as e:
+        return {"verdict": "UNVERIFIED", "reason": f"Request Failed"}
     
 
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
     
+    # --- SPACY NLP EXTRACTION ---
+    # We extract just the nouns (e.g., "Taj Mahal") to ensure DuckDuckGo 
+    # finds the real article, rather than searching for the fake claim.
+    doc = nlp(claim)
+    search_keywords = " ".join([chunk.text for chunk in doc.noun_chunks])
+    if not search_keywords or len(search_keywords) < 3:
+        search_keywords = claim
+    # ----------------------------
+
     with DDGS() as ddgs:
-        results = list(ddgs.text(claim, max_results=10))
+        # Search using the extracted keywords, NOT the full fake claim
+        results = list(ddgs.text(search_keywords, max_results=10))
         for res in results:
             url = res.get('href', '').lower()
             if any(trusted in url for trusted in whitelist):
@@ -160,6 +195,7 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
         "source": source_url,
         "snippet": snippet
     }
+
 
 @app.post("/verify")
 async def verify_claim(request: ClaimRequest):
