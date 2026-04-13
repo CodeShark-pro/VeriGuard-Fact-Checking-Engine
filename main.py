@@ -111,7 +111,7 @@ async def call_gemini_ai(claim: str):
     if not GEMINI_API_KEY:
         return {"verdict": "UNVERIFIED", "reason": "API key missing in .env"}
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = f"You are a strict fact-checker. Respond EXACTLY with VERDICT | REASON. VERDICT must be TRUE, FALSE, or UNVERIFIED. REASON is one sentence. NO markdown. Claim: {claim}"
         
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
