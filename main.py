@@ -111,8 +111,7 @@ async def call_gemini_ai(claim: str):
     if not GEMINI_API_KEY:
         return {"verdict": "UNVERIFIED", "reason": "API key missing in .env"}
     try:
-        # Reverted to standard model name
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
         prompt = f"You are a strict fact-checker. Respond EXACTLY with VERDICT | REASON. VERDICT must be TRUE, FALSE, or UNVERIFIED. REASON is one sentence. NO markdown. Claim: {claim}"
         
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -150,23 +149,17 @@ async def call_gemini_ai(claim: str):
         return {"verdict": "UNVERIFIED", "reason": "Unparseable AI Output"}
     except Exception as e:
         return {"verdict": "UNVERIFIED", "reason": f"Request Failed"}
-    
+
 
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
     
-    # --- SPACY NLP EXTRACTION ---
-    # We extract just the nouns (e.g., "Taj Mahal") to ensure DuckDuckGo 
-    # finds the real article, rather than searching for the fake claim.
     doc = nlp(claim)
-    search_keywords = " ".join([chunk.text for chunk in doc.noun_chunks])
-    if not search_keywords or len(search_keywords) < 3:
-        search_keywords = claim
-    # ----------------------------
+    chunks = list(doc.noun_chunks)
+    search_keywords = chunks[0].text if chunks else claim
 
     with DDGS() as ddgs:
-        # Search using the extracted keywords, NOT the full fake claim
         results = list(ddgs.text(search_keywords, max_results=10))
         for res in results:
             url = res.get('href', '').lower()
