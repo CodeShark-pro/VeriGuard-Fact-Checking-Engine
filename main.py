@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 import httpx
 import re
 import asyncio
-import spacy
+
 
 load_dotenv()
 
@@ -63,8 +63,7 @@ whitelist = [
     "nih.gov", "mayoclinic.org", "clevelandclinic.org"
 ]
 
-print("Loading NLP modules...")
-nlp = spacy.load("en_core_web_sm")
+
 
 @app.on_event("startup")
 def load_model():
@@ -164,10 +163,11 @@ async def call_gemini_ai(claim: str):
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
-    
-    doc = nlp(claim)
-    chunks = list(doc.noun_chunks)
-    search_keywords = chunks[0].text if chunks else claim
+
+    # Use the full claim as the search query for maximum relevance.
+    # Previously only the first noun chunk was used (e.g. "Punjab"),
+    # which caused factual numbers/details to be missing from snippets.
+    search_keywords = claim
 
     with DDGS() as ddgs:
         results = list(ddgs.text(search_keywords, max_results=10))
@@ -181,18 +181,18 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
                 else:
                     snippet = res.get('body', '')
                 break
-                
+
     if not snippet:
         return {
             "verdict": "Neutral (Unverified)",
             "source": None,
             "snippet": "No data found in whitelisted sources."
         }
-        
+
     scores = model.predict([(snippet, claim)])
     labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
     winner = labels[scores[0].argmax()]
-    
+
     return {
         "verdict": winner,
         "source": source_url,
@@ -238,10 +238,20 @@ async def verify_claim(request: ClaimRequest):
 
     vg_result, ai_result = await asyncio.gather(veriguard_task, gemini_task)
 
+    # If the NLI model is uncertain (Neutral/Unverified), use Gemini as a fallback.
+    # Map Gemini's binary TRUE/FALSE back to the NLI label vocabulary so the
+    # frontend receives a consistent verdict string.
+    if vg_result["verdict"] == "Neutral (Unverified)":
+        gemini_verdict = ai_result.get("verdict", "UNVERIFIED")
+        if gemini_verdict == "FALSE":
+            vg_result["verdict"] = "Contradiction (False)"
+        elif gemini_verdict == "TRUE":
+            vg_result["verdict"] = "Entailment (True)"
+
     await save_to_cache(
-        normalized_claim, 
-        vg_result["verdict"], 
-        vg_result["source"], 
+        normalized_claim,
+        vg_result["verdict"],
+        vg_result["source"],
         vg_result["snippet"],
         ai_result["verdict"],
         ai_result["reason"]
