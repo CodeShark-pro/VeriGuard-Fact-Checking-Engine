@@ -51,6 +51,16 @@ whitelist = [
     "en.wikipedia.org", "britannica.com", "investopedia.com", "history.com",
     "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org",
     "nasa.gov", "cdc.gov", "rbi.org.in"
+    # Data & Statistics
+    "ourworldindata.org", "pewresearch.org", "statista.com", "gallup.com",
+    # Expanded Indian Govt & Institutions
+    "isro.gov.in", "eci.gov.in", "uidai.gov.in", "india.gov.in",
+    # Tech, Cyber & Privacy
+    "eff.org", "cisa.gov", "wired.com", "techcrunch.com",
+    # Global Broadcasters
+    "dw.com", "france24.com", "pbs.org", "cbc.ca", 
+    # Health & Medicine
+    "nih.gov", "mayoclinic.org", "clevelandclinic.org"
 ]
 
 print("Loading NLP modules...")
