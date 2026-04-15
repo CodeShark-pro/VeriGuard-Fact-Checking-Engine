@@ -15,7 +15,12 @@ import asyncio
 
 load_dotenv()
 
-MONGO_DETAILS = os.getenv("MONGO_URI")
+MONGO_DETAILS = os.getenv("MONGO_URI", "").replace('"', '').replace("'", "").strip()
+if not MONGO_DETAILS:
+    MONGO_DETAILS = "mongodb://localhost:27017"
+    print("WARNING: MONGO_URI not found in .env. Defaulting to localhost.")
+else:
+    print(f"MongoDB URI loaded: {MONGO_DETAILS[:20]}...")
 
 # STRIP ALL QUOTES AND SPACES SO THE URL DOESN'T BREAK
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '').replace("'", "").strip()
@@ -91,15 +96,19 @@ async def check_global_cache(claim_text: str):
     return cached_result
 
 async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet: str, ai_verdict: str, ai_reason: str):
-    new_entry = {
-        "claim": claim_text,
-        "verdict": verdict,
-        "source": source_url,
-        "snippet": snippet,
-        "ai_verdict": ai_verdict,
-        "ai_reason": ai_reason
-    }
-    await claim_collection.insert_one(new_entry)
+    try:
+        new_entry = {
+            "claim": claim_text,
+            "verdict": verdict,
+            "source": source_url,
+            "snippet": snippet,
+            "ai_verdict": ai_verdict,
+            "ai_reason": ai_reason
+        }
+        await claim_collection.insert_one(new_entry)
+        print(f"SUCCESS: Saved claim to MongoDB: {claim_text[:50]}...")
+    except Exception as e:
+        print(f"ERROR: Failed to save to MongoDB: {e}")
 
 async def scrape_article_text(url: str) -> str:
     try:
@@ -220,6 +229,7 @@ async def verify_claim(request: ClaimRequest):
 
     cached_data = await check_global_cache(normalized_claim)
     if cached_data:
+        print(f"CACHE HIT: Found result for '{normalized_claim[:30]}...'")
         return {
             "veriguard": {
                 "verdict": cached_data["verdict"],
@@ -233,10 +243,12 @@ async def verify_claim(request: ClaimRequest):
             "is_cached_globally": True
         }
 
+    print(f"DEBUG: Starting pipeline for '{request.claim[:30]}...'")
     veriguard_task = run_veriguard_pipeline(request.claim, normalized_claim)
     gemini_task = call_gemini_ai(request.claim)
 
     vg_result, ai_result = await asyncio.gather(veriguard_task, gemini_task)
+    print(f"DEBUG: Pipeline completed. Veriguard: {vg_result['verdict']}, AI: {ai_result['verdict']}")
 
     # If the NLI model is uncertain (Neutral/Unverified), use Gemini as a fallback.
     # Map Gemini's binary TRUE/FALSE back to the NLI label vocabulary so the
