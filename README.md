@@ -33,6 +33,28 @@ VeriGuard introduces a zero-cost Open-Source Intelligence (OSINT) pipeline that 
 Ensure you have Python installed, then install the required dependencies:
 
 ```bash
-pip install fastapi uvicorn spacy sentence-transformers duckduckgo-search
+pip install fastapi uvicorn spacy sentence-transformers duckduckgo-search motor python-dotenv httpx beautifulsoup4
 python -m spacy download en_core_web_sm
 ```
+
+Run the FastAPI server:
+
+```bash
+uvicorn main:app --reload
+```
+
+### 2. Load the Chrome Extension
+
+1. Open Google Chrome or any Chromium-based browser (Edge, Brave).
+2. Navigate to `chrome://extensions/` in your address bar.
+3. Turn on **Developer mode** using the toggle in the top right corner.
+4. Click the **Load unpacked** button.
+5. Select the `veriguard_extensions` folder located within this repository.
+
+### 3. How to Use
+
+1. **Find a Claim:** Browse any article, social media post, or webpage.
+2. **Highlight:** Select the factual claim you want to verify.
+3. **Right-Click:** Right-click the highlighted text to open the browser context menu.
+4. **Verify:** Select the **"Verify Claim"** option from the menu.
+5. **Results:** A notification or pop-up will appear displaying the verdict (True/False/Unverified), context, and the corroborating source URL.
