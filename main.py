@@ -133,7 +133,9 @@ async def call_gemini_ai(claim: str):
             response = await client.post(url, json=payload)
             
         if response.status_code != 200:
-            return {"verdict": "UNVERIFIED", "reason": f"HTTP {response.status_code}: {response.text[:40]}"}
+            if response.status_code in [502, 503, 504]:
+                return {"verdict": "UNVERIFIED", "reason": "Gemini API service is temporarily unavailable."}
+            return {"verdict": "UNVERIFIED", "reason": f"Gemini API Error (HTTP {response.status_code})"}
             
         data = response.json()
         
