@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from sentence_transformers import CrossEncoder
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
@@ -173,21 +173,31 @@ async def call_gemini_ai(claim: str):
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
+    best_fallback_res = None  # best non-whitelisted result as a last resort
 
-    # Use the full claim as the search query for maximum relevance.
-    # Previously only the first noun chunk was used (e.g. "Punjab"),
-    # which caused factual numbers/details to be missing from snippets.
-    search_keywords = claim
+    # Build a targeted query that steers DDG toward encyclopedia/news sources.
+    # The raw claim as a search sentence often returns tourism/forum pages.
+    targeted_query = f"{claim} site:en.wikipedia.org OR site:britannica.com OR site:reuters.com OR site:apnews.com OR site:bbc.com"
+    general_query  = claim
 
-    def fetch_search_results():
+    def fetch_search_results(query: str):
         with DDGS() as ddgs:
-            return list(ddgs.text(search_keywords, max_results=10))
+            return list(ddgs.text(query, max_results=10))
 
+    # Pass 1 — whitelist-targeted search
     try:
-        results = await asyncio.to_thread(fetch_search_results)
+        results = await asyncio.to_thread(fetch_search_results, targeted_query)
     except Exception as e:
-        print(f"WARNING: DDGS search failed: {e}")
+        print(f"WARNING: DDGS targeted search failed: {e}")
         results = []
+
+    # If targeted search returned nothing, fall back to a plain search
+    if not results:
+        try:
+            results = await asyncio.to_thread(fetch_search_results, general_query)
+        except Exception as e:
+            print(f"WARNING: DDGS general search failed: {e}")
+            results = []
 
     for res in results:
         url = res.get('href', '').lower()
@@ -199,6 +209,36 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
             else:
                 snippet = res.get('body', '')
             break
+        elif best_fallback_res is None and res.get('body', ''):
+            # Keep track of the best non-whitelisted result in case we need it
+            best_fallback_res = res
+
+    # Pass 2 — if still no whitelisted snippet, try a plain search
+    if not snippet:
+        try:
+            general_results = await asyncio.to_thread(fetch_search_results, general_query)
+        except Exception:
+            general_results = []
+
+        for res in general_results:
+            url = res.get('href', '').lower()
+            if any(trusted in url for trusted in whitelist):
+                source_url = res.get('href', '')
+                scraped_text = await scrape_article_text(source_url)
+                if scraped_text and len(scraped_text) > 50:
+                    snippet = scraped_text
+                else:
+                    snippet = res.get('body', '')
+                break
+            elif best_fallback_res is None and res.get('body', ''):
+                best_fallback_res = res
+
+    # Last resort — use the best non-whitelisted result so Gemini still gets
+    # context and we don't dead-end with an empty snippet.
+    if not snippet and best_fallback_res:
+        source_url = best_fallback_res.get('href', '')
+        snippet = best_fallback_res.get('body', '')
+        print(f"INFO: No whitelisted source found; using fallback: {source_url}")
 
     if not snippet:
         return {
