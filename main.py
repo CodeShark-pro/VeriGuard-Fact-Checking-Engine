@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from sentence_transformers import CrossEncoder
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
