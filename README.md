@@ -33,8 +33,7 @@ VeriGuard introduces a zero-cost Open-Source Intelligence (OSINT) pipeline that 
 Ensure you have Python installed, then install the required dependencies:
 
 ```bash
-pip install fastapi uvicorn spacy sentence-transformers duckduckgo-search motor python-dotenv httpx beautifulsoup4
-python -m spacy download en_core_web_sm
+pip install -r requirements.txt
 ```
 
 Run the FastAPI server:
