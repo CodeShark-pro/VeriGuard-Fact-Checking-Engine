@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from sentence_transformers import CrossEncoder
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,7 @@ else:
 # STRIP ALL QUOTES AND SPACES SO THE URL DOESN'T BREAK
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '').replace("'", "").strip()
 
-client = AsyncIOMotorClient(MONGO_DETAILS)
+client = AsyncIOMotorClient(MONGO_DETAILS, serverSelectionTimeoutMS=5000)
 database = client.veriguard
 claim_collection = database.claims
 
@@ -55,7 +55,7 @@ whitelist = [
     "ieee.org", "smithsonianmag.com", "nationalgeographic.com",
     "en.wikipedia.org", "britannica.com", "investopedia.com", "history.com",
     "pib.gov.in", "who.int", "un.org", "worldbank.org", "imf.org",
-    "nasa.gov", "cdc.gov", "rbi.org.in"
+    "nasa.gov", "cdc.gov", "rbi.org.in",
     "ourworldindata.org", "pewresearch.org", "statista.com", "gallup.com",
     "isro.gov.in", "eci.gov.in", "uidai.gov.in", "india.gov.in",
     "eff.org", "cisa.gov", "wired.com", "techcrunch.com",
@@ -85,10 +85,14 @@ def is_question(text: str) -> bool:
     return False
 
 async def check_global_cache(claim_text: str):
-    cached_result = await claim_collection.find_one({"claim": claim_text})
-    if cached_result:
-        cached_result["_id"] = str(cached_result["_id"])
-    return cached_result
+    try:
+        cached_result = await claim_collection.find_one({"claim": claim_text})
+        if cached_result:
+            cached_result["_id"] = str(cached_result["_id"])
+        return cached_result
+    except Exception as e:
+        print(f"WARNING: Cache read failed: {e}")
+        return None
 
 async def save_to_cache(claim_text: str, verdict: str, source_url: str, snippet: str, ai_verdict: str, ai_reason: str):
     try:
@@ -175,18 +179,26 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     # which caused factual numbers/details to be missing from snippets.
     search_keywords = claim
 
-    with DDGS() as ddgs:
-        results = list(ddgs.text(search_keywords, max_results=10))
-        for res in results:
-            url = res.get('href', '').lower()
-            if any(trusted in url for trusted in whitelist):
-                source_url = res.get('href', '')
-                scraped_text = await scrape_article_text(source_url)
-                if scraped_text and len(scraped_text) > 50:
-                    snippet = scraped_text
-                else:
-                    snippet = res.get('body', '')
-                break
+    def fetch_search_results():
+        with DDGS() as ddgs:
+            return list(ddgs.text(search_keywords, max_results=10))
+
+    try:
+        results = await asyncio.to_thread(fetch_search_results)
+    except Exception as e:
+        print(f"WARNING: DDGS search failed: {e}")
+        results = []
+
+    for res in results:
+        url = res.get('href', '').lower()
+        if any(trusted in url for trusted in whitelist):
+            source_url = res.get('href', '')
+            scraped_text = await scrape_article_text(source_url)
+            if scraped_text and len(scraped_text) > 50:
+                snippet = scraped_text
+            else:
+                snippet = res.get('body', '')
+            break
 
     if not snippet:
         return {
@@ -195,9 +207,12 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
             "snippet": "No data found in whitelisted sources."
         }
 
-    scores = model.predict([(snippet, claim)])
-    labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
-    winner = labels[scores[0].argmax()]
+    def perform_prediction():
+        scores = model.predict([(snippet, claim)])
+        labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
+        return labels[scores[0].argmax()]
+
+    winner = await asyncio.to_thread(perform_prediction)
 
     return {
         "verdict": winner,
