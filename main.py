@@ -1,8 +1,7 @@
 import os
 from fastapi import FastAPI
 from pydantic import BaseModel
-from ddgs import DDGS
-from sentence_transformers import CrossEncoder
+from duckduckgo_search import DDGS
 import warnings
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -12,26 +11,22 @@ import httpx
 import re
 import asyncio
 
-
 load_dotenv()
 
 MONGO_DETAILS = os.getenv("MONGO_URI", "").replace('"', '').replace("'", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '').replace("'", "").strip()
+HF_API_KEY = os.getenv("HF_API_KEY", "").strip()
+
 if not MONGO_DETAILS:
     MONGO_DETAILS = "mongodb://localhost:27017"
-    print("WARNING: MONGO_URI not found in .env. Defaulting to localhost.")
-else:
-    print(f"MongoDB URI loaded: {MONGO_DETAILS[:20]}...")
 
-# STRIP ALL QUOTES AND SPACES SO THE URL DOESN'T BREAK
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").replace('"', '').replace("'", "").strip()
-
-client = AsyncIOMotorClient(MONGO_DETAILS, serverSelectionTimeoutMS=5000)
+client = AsyncIOMotorClient(MONGO_DETAILS)
 database = client.veriguard
 claim_collection = database.claims
 
 warnings.filterwarnings("ignore")
 
-app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking Engine")
+app = FastAPI(title="VeriGuard API", description="Autonomous Fact-Checking Engine (HF Edge)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,7 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = None
 whitelist = [
     "reuters.com", "apnews.com", "afp.com", "bloomberg.com", "upi.com",
     "bbc.com", "bbc.co.uk", "npr.org", "nytimes.com", "wsj.com",
@@ -63,14 +57,9 @@ whitelist = [
     "nih.gov", "mayoclinic.org", "clevelandclinic.org"
 ]
 
-
-
 @app.on_event("startup")
-def load_model():
-    global model
-    print("Initializing VeriGuard...")
-    model = CrossEncoder('cross-encoder/nli-deberta-v3-small')
-    print("Model loaded! Server is ready for requests.")
+def startup_event():
+    print("VeriGuard Server Online! Routing NLP to Hugging Face Inference API.")
 
 class ClaimRequest(BaseModel):
     claim: str
@@ -83,6 +72,44 @@ def is_question(text: str) -> bool:
     if re.match(question_patterns, text):
         return True
     return False
+
+async def call_hf_deberta(snippet: str, claim: str):
+    """Hits the Hugging Face API for the DeBERTa-v3 Cross-Encoder."""
+    if not HF_API_KEY:
+        return "Neutral (Unverified)"
+
+    url = "https://api-inference.huggingface.co/models/cross-encoder/nli-deberta-v3-small"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    
+    # HF format for cross-encoder sentence pairs
+    payload = {"inputs": {"text": snippet, "text_pair": claim}}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            data = response.json()
+
+        # Handle HF "Cold Start" (if the model is asleep on their servers)
+        if isinstance(data, dict) and "error" in data:
+            print(f"HF API Warming Up: {data.get('estimated_time', 'Unknown')} seconds.")
+            return "Neutral (Unverified)"
+
+        # Find the label with the highest mathematical score
+        predictions = data[0] if isinstance(data, list) else data
+        best_prediction = max(predictions, key=lambda x: x['score'])
+        label = best_prediction['label'].lower()
+
+        # Map DeBERTa-v3 output labels to VeriGuard UI labels
+        if "entail" in label or label == "label_1":
+            return "Entailment (True)"
+        elif "contradict" in label or label == "label_0":
+            return "Contradiction (False)"
+        else:
+            return "Neutral (Unverified)"
+
+    except Exception as e:
+        print(f"HF API Error: {e}")
+        return "Neutral (Unverified)"
 
 async def check_global_cache(claim_text: str):
     try:
@@ -173,54 +200,11 @@ async def call_gemini_ai(claim: str):
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
-    best_fallback_res = None  # best non-whitelisted result as a last resort
+    search_keywords = claim
 
-    # Build a targeted query that steers DDG toward encyclopedia/news sources.
-    # The raw claim as a search sentence often returns tourism/forum pages.
-    targeted_query = f"{claim} site:en.wikipedia.org OR site:britannica.com OR site:reuters.com OR site:apnews.com OR site:bbc.com"
-    general_query  = claim
-
-    def fetch_search_results(query: str):
-        with DDGS() as ddgs:
-            return list(ddgs.text(query, max_results=10))
-
-    # Pass 1 — whitelist-targeted search
-    try:
-        results = await asyncio.to_thread(fetch_search_results, targeted_query)
-    except Exception as e:
-        print(f"WARNING: DDGS targeted search failed: {e}")
-        results = []
-
-    # If targeted search returned nothing, fall back to a plain search
-    if not results:
-        try:
-            results = await asyncio.to_thread(fetch_search_results, general_query)
-        except Exception as e:
-            print(f"WARNING: DDGS general search failed: {e}")
-            results = []
-
-    for res in results:
-        url = res.get('href', '').lower()
-        if any(trusted in url for trusted in whitelist):
-            source_url = res.get('href', '')
-            scraped_text = await scrape_article_text(source_url)
-            if scraped_text and len(scraped_text) > 50:
-                snippet = scraped_text
-            else:
-                snippet = res.get('body', '')
-            break
-        elif best_fallback_res is None and res.get('body', ''):
-            # Keep track of the best non-whitelisted result in case we need it
-            best_fallback_res = res
-
-    # Pass 2 — if still no whitelisted snippet, try a plain search
-    if not snippet:
-        try:
-            general_results = await asyncio.to_thread(fetch_search_results, general_query)
-        except Exception:
-            general_results = []
-
-        for res in general_results:
+    with DDGS() as ddgs:
+        results = list(ddgs.text(search_keywords, max_results=10))
+        for res in results:
             url = res.get('href', '').lower()
             if any(trusted in url for trusted in whitelist):
                 source_url = res.get('href', '')
@@ -230,15 +214,6 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
                 else:
                     snippet = res.get('body', '')
                 break
-            elif best_fallback_res is None and res.get('body', ''):
-                best_fallback_res = res
-
-    # Last resort — use the best non-whitelisted result so Gemini still gets
-    # context and we don't dead-end with an empty snippet.
-    if not snippet and best_fallback_res:
-        source_url = best_fallback_res.get('href', '')
-        snippet = best_fallback_res.get('body', '')
-        print(f"INFO: No whitelisted source found; using fallback: {source_url}")
 
     if not snippet:
         return {
@@ -247,12 +222,8 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
             "snippet": "No data found in whitelisted sources."
         }
 
-    def perform_prediction():
-        scores = model.predict([(snippet, claim)])
-        labels = ['Contradiction (False)', 'Entailment (True)', 'Neutral (Unverified)']
-        return labels[scores[0].argmax()]
-
-    winner = await asyncio.to_thread(perform_prediction)
+    # Replaced local model.predict() with API call
+    winner = await call_hf_deberta(snippet, claim)
 
     return {
         "verdict": winner,
