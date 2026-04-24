@@ -15,6 +15,9 @@
     "notifications",
     "storage"
   ],
+  "host_permissions": [
+    "https://veriguard-fact-checking-engine.onrender.com/*"
+  ],
   "background": {
     "service_worker": "background.js"
   }
