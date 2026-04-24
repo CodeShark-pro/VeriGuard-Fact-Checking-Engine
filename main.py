@@ -200,11 +200,53 @@ async def call_gemini_ai(claim: str):
 async def run_veriguard_pipeline(claim: str, normalized_claim: str):
     snippet = ""
     source_url = ""
-    search_keywords = claim
+    best_fallback_res = None  # best non-whitelisted result as a last resort
 
-    with DDGS() as ddgs:
-        results = list(ddgs.text(search_keywords, max_results=10))
-        for res in results:
+    # Build a targeted query that steers DDG toward encyclopedia/news sources.
+    targeted_query = f"{claim} site:en.wikipedia.org OR site:britannica.com OR site:reuters.com OR site:apnews.com OR site:bbc.com"
+    general_query  = claim
+
+    def fetch_search_results(query: str):
+        with DDGS() as ddgs:
+            return list(ddgs.text(query, max_results=10))
+
+    # Pass 1 — whitelist-targeted search
+    try:
+        results = await asyncio.to_thread(fetch_search_results, targeted_query)
+    except Exception as e:
+        print(f"WARNING: DDGS targeted search failed: {e}")
+        results = []
+
+    # If targeted search returned nothing, fall back to a plain search
+    if not results:
+        try:
+            results = await asyncio.to_thread(fetch_search_results, general_query)
+        except Exception as e:
+            print(f"WARNING: DDGS general search failed: {e}")
+            results = []
+
+    for res in results:
+        url = res.get('href', '').lower()
+        if any(trusted in url for trusted in whitelist):
+            source_url = res.get('href', '')
+            scraped_text = await scrape_article_text(source_url)
+            if scraped_text and len(scraped_text) > 50:
+                snippet = scraped_text
+            else:
+                snippet = res.get('body', '')
+            break
+        elif best_fallback_res is None and res.get('body', ''):
+            # Keep track of the best non-whitelisted result in case we need it
+            best_fallback_res = res
+
+    # Pass 2 — if still no whitelisted snippet, try a plain search
+    if not snippet:
+        try:
+            general_results = await asyncio.to_thread(fetch_search_results, general_query)
+        except Exception:
+            general_results = []
+
+        for res in general_results:
             url = res.get('href', '').lower()
             if any(trusted in url for trusted in whitelist):
                 source_url = res.get('href', '')
@@ -214,6 +256,14 @@ async def run_veriguard_pipeline(claim: str, normalized_claim: str):
                 else:
                     snippet = res.get('body', '')
                 break
+            elif best_fallback_res is None and res.get('body', ''):
+                best_fallback_res = res
+
+    # Last resort — use the best non-whitelisted result
+    if not snippet and best_fallback_res:
+        source_url = best_fallback_res.get('href', '')
+        snippet = best_fallback_res.get('body', '')
+        print(f"INFO: No whitelisted source found; using fallback: {source_url}")
 
     if not snippet:
         return {
@@ -280,8 +330,12 @@ async def verify_claim(request: ClaimRequest):
         gemini_verdict = ai_result.get("verdict", "UNVERIFIED")
         if gemini_verdict == "FALSE":
             vg_result["verdict"] = "Contradiction (False)"
+            if not vg_result.get("source"):
+                vg_result["snippet"] = "Verified via Gemini AI knowledge (No whitelisted sources found)."
         elif gemini_verdict == "TRUE":
             vg_result["verdict"] = "Entailment (True)"
+            if not vg_result.get("source"):
+                vg_result["snippet"] = "Verified via Gemini AI knowledge (No whitelisted sources found)."
 
     await save_to_cache(
         normalized_claim,
