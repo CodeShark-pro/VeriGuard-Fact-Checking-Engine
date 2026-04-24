@@ -39,7 +39,7 @@ document.getElementById('verifyBtn').addEventListener('click', async () => {
 
         verdictText.innerText = "Retrieving ground-truth & calling Gemini...";
         try {
-            const response = await fetch('http://localhost:8000/verify', {
+            const response = await fetch('https://veriguard-fact-checking-engine.onrender.com', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ claim: rawClaim })
